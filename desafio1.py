@@ -1,3 +1,10 @@
+"""
+desafio1_aluno.py — Desafio 1: Mapa de características para o Perceptron
+GBC073 — Inteligência Computacional (FACOM/UFU)
+Alunos:
+Gustavo Luis de Siqueira Nascimento 12411BCC017
+Pablo Rodrigues Cardoso Araújo - 12411BCC006
+"""
 import math
 import time
 import torch
