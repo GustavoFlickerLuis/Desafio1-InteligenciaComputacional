@@ -1,0 +1,117 @@
+GBC073 — Inteligência Computacional · FACOM/UFU · Desafio 1
+Gustavo Luis de Siqueira Nascimento — 12411BCC017
+Pablo Rodrigues Cardoso Araújo — 12411BCC006
+
+Deixamos aqui o prompt que fizemos para o Claude montar os slides. Optamos por usá-lo pela facilidade de montagem. Demos todo o contexto necessário para a produção do material: o enunciado, a nossa implementação e a explicação completa de cada decisão que tomamos. Também pedimos que ele não aceitasse nossos argumentos de graça, mas que rodasse o código e medisse cada componente. Isso acabou nos corrigindo em um ponto, que registramos no slide 3.
+
+O prompt
+
+Você vai montar uma apresentação curta, com no máximo 5 slides, sobre a nossa implementação do desafio de Inteligência Computacional.
+
+O foco não é explicar o código linha por linha, mas mostrar as decisões que tomamos para resolver o problema.
+
+Use uma linguagem clara e passe a ideia matemática sem deixar os slides pesados. Queremos explicar principalmente o motivo das escolhas, e não entrar muito no funcionamento de cada linha.
+
+Segue todo o contexto.
+
+O exercício
+
+O arquivo do desafio é desafio1_aluno.py, junto com o enunciado e o harness de avaliação fornecidos pelo professor. Não editamos nada abaixo da linha do harness, apenas preenchemos a classe Submissao.
+
+O exercício pede para criar um mapa de características φ que transforme os dados antes de eles passarem por um perceptron. O classificador é fixo: um perceptron de Rosenblatt com pocket, que só consegue traçar uma fronteira linear. Como nenhuma das cinco tarefas é linearmente separável no espaço original, a nossa principal possibilidade é mudar o espaço dos dados.
+
+O harness impõe algumas restrições. A dimensão de saída precisa ser maior que a dimensão original e no máximo 64. O fit(X) não recebe os rótulos y. A transformação precisa ser determinística, ou seja, φ(x) deve dar sempre o mesmo resultado para a mesma entrada. Também precisamos processar 10⁴ pontos em menos de 2 segundos. Além disso, existe apenas um φ para as cinco tarefas, sem saber qual delas está sendo usada.
+
+As tarefas são xor, duas_luas, circulos, espiral, todas em 2D, e esfera_10d, em 10D.
+
+O escore compara cada tarefa com um baseline, que é a identidade e vale 0, e com uma referência usando random Fourier features com 64 dimensões, que vale 100. Depois, o resultado é calculado por
+
+S = 100 · (0,7 · média + 0,3 · mínimo)
+
+O detalhe mais importante é que 30% da nota depende da pior tarefa. Isso acabou influenciando bastante o projeto. Não adianta conseguir um resultado muito bom em algumas tarefas e deixar uma delas para trás. Precisávamos de uma transformação que fosse razoável em todas.
+
+A nossa solução
+
+A implementação está em Submissao.fit e Submissao.phi, no mesmo arquivo.
+
+No fit, primeiro padronizamos os dados usando z-score, guardando a média μ e o desvio σ de Xtr. Depois sorteamos 31 direções aleatórias W usando uma semente fixa. Essas direções são divididas em três larguras de banda:
+
+Banda lenta: σ = √(3d), com 11 direções.
+
+Banda média: σ = √d, com 10 direções.
+
+Banda rápida: σ = 0,35·√d, com 10 direções.
+
+O phi produz exatamente 64 colunas. São 62 colunas de Fourier, usando seno e cosseno das mesmas 31 direções, e mais 2 colunas radiais.
+
+As colunas radiais são
+
+r² = (x₁² + ... + x_d²)/d
+
+e
+
+r = √r²
+
+Essas duas são calculadas depois da padronização dos dados.
+
+No total, temos 31 × 2 + 2 = 64 colunas. O limite é atingido exatamente. Escolhemos 31 direções porque cada uma gera duas colunas, seno e cosseno. Com 32 direções, já passaríamos do limite quando adicionássemos as duas características radiais.
+
+O raciocínio por trás das escolhas
+
+3.1 O raio
+
+Essa foi uma das partes mais importantes da solução.
+
+O raio não é calculado no espaço das 64 características. Ele é calculado no espaço original dos dados, antes da transformação. Nas tarefas 2D usamos d = 2 e na esfera usamos d = 10. A ideia é medir a distância de cada ponto até o centro da nuvem.
+
+O z-score ajuda nisso porque, depois de subtrair a média, a origem passa a representar o centroide dos dados. Assim, r² representa a distância euclidiana ao quadrado até esse centro.
+
+Isso funciona especialmente bem na esfera_10d. O gerador dessa tarefa define o rótulo por
+
+y = 1 se Σxᵢ² > mediana.
+
+Ou seja, a própria regra que define as classes é um limiar no raio. Ao colocar o raio como uma característica, o perceptron não precisa tentar construir uma casca esférica em 10 dimensões usando várias ondas. Ele pode simplesmente aprender um limiar nessa coordenada.
+
+A mesma ideia aparece em circulos, onde temos duas circunferências concêntricas.
+
+Também fizemos duas escolhas menores aqui.
+
+Usamos a média em vez da soma para calcular r². Dividir por d mantém a escala mais estável entre diferentes dimensões, com E[r²] = 1. Isso é importante porque o perceptron atualiza os pesos usando as características e uma coluna com escala muito maior poderia acabar dominando as outras.
+
+Também mantivemos r além de r². Com as duas características, uma combinação como a·r² + b·r + c permite formar uma fronteira quadrática em r. Isso dá ao perceptron a possibilidade de representar um anel, e não apenas um disco ou o seu complemento.
+
+3.2 Seno e cosseno
+
+Em vez de usar apenas cosseno com uma fase sorteada, como acontece na referência do desafio, usamos seno e cosseno das mesmas 31 direções.
+
+A primeira vantagem é que o perceptron consegue aprender a fase. Uma combinação de seno e cosseno pode ser escrita como uma única onda com um deslocamento de fase. Assim, os dois pesos associados à mesma direção permitem que o perceptron ajuste a posição da onda de acordo com os dados.
+
+Quando a fase é sorteada antes, uma fase ruim pode acabar sendo pouco útil. No nosso caso, o próprio classificador consegue ajustar isso.
+
+Outro ponto é que o par seno e cosseno evita que uma direção fique completamente inútil em determinados pontos. Quando o cosseno chega perto de zero, o seno está próximo do máximo, já que sin²θ + cos²θ = 1.
+
+Também existe uma vantagem matemática importante. Com seno e cosseno das mesmas direções, o produto interno entre as características depende da diferença entre os pontos. Isso acontece pela identidade
+
+cos(u)cos(v) + sin(u)sin(v) = cos(u − v).
+
+Com uma fase sorteada, essa propriedade não aparece diretamente para cada conjunto finito de características e depende da média sobre muitas amostras.
+
+3.3 As três larguras de banda
+
+Depois de padronizar os dados, temos aproximadamente E[||x||²] = d. Se as direções são sorteadas com a escala definida pela largura de banda, o desvio da projeção wᵀx fica aproximadamente √d/σ.
+
+Por isso, σ = √d é uma escolha natural. Ela faz com que o argumento das funções seno e cosseno fique em uma escala próxima de 1. A onda não fica tão lenta a ponto de parecer quase uma reta, mas também não oscila rápido demais.
+
+Só que temos um problema: a mesma transformação precisa funcionar nas cinco tarefas e o fit não recebe os rótulos. Então não temos como descobrir qual tarefa está sendo usada e escolher uma única largura de banda específica.
+
+A solução foi usar três escalas diferentes. Assim, temos características mais lentas, médias e rápidas e deixamos o perceptron aproveitar as que forem mais úteis para cada conjunto de dados.
+
+Além de montar os slides
+
+Não aceite os argumentos acima simplesmente como verdade. Rode desafio1_aluno.py e faça testes isolando cada componente da solução.
+
+Queremos comparar, por exemplo, a solução completa com uma versão sem as características radiais, uma versão usando apenas uma das larguras de banda e uma versão que troque o par seno e cosseno pela abordagem com fase sorteada.
+
+Para cada caso, mostre quanto a mudança realmente afeta o escore. Se algum dos nossos argumentos não for confirmado pelos resultados, coloque isso nos slides em vez de esconder. Preferimos apresentar uma ablação honesta e mostrar o que realmente fez diferença na solução.
+
+Use apenas números obtidos nas execuções. Não invente resultados.
